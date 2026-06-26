@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Collision Theory Lab</title>
+<title>Collision Theory Simulation</title>
 <style>
   :root{
     --bg:#0a0d18; --panel:#141a2b; --panel-2:#1b2236; --line:#27304a;
@@ -25,7 +25,7 @@
   .wrap{ width:100%; max-width:860px; }
   .eyebrow{ font-family:var(--mono); font-size:.72rem; letter-spacing:.32em; text-transform:uppercase; color:var(--cyan); margin:0 0 6px; }
   h1{ margin:0 0 6px; font-size:1.7rem; letter-spacing:-.02em; }
-  .lede{ color:var(--muted); font-size:.95rem; margin:0 0 20px; max-width:62ch; line-height:1.5; }
+  .lede{ color:var(--muted); font-size:.95rem; margin:0 0 20px; line-height:1.5; }
   .panel{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }
   .pick{ display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; margin-bottom:14px; }
   .field{ display:flex; flex-direction:column; gap:6px; flex:1 1 280px; }
@@ -119,8 +119,8 @@
 <body>
 <div class="wrap">
   <p class="eyebrow">Collision Theory · Reaction Kinetics</p>
-  <h1>Collision Theory Lab</h1>
-  <p class="lede">A reaction needs two things to happen: the molecules must collide in the right <em>orientation</em>, and with enough <em>energy</em> to clear the activation barrier. Pick a reaction, aim the molecules, set the collision energy, and fire.</p>
+  <h1>Collision Theory Simulation</h1>
+  <p class="lede">A reaction needs two things to happen: the molecules must collide in the right <em>orientation</em>, and with enough <em>energy</em> to clear the activation barrier.</p>
 
   <div class="panel">
     <div class="pick">
@@ -201,7 +201,7 @@
     </span>
     <span class="ws-text">
       <span class="ws-title">Worksheet</span>
-      <span class="ws-sub">Put the simulator to work — open the collision theory investigation (PDF).</span>
+      <span class="ws-sub">Collision theory investigation (PDF).</span>
     </span>
     <span class="ws-go">Open&nbsp;&rarr;</span>
   </a>
@@ -580,9 +580,9 @@ function updateVerdict(){
   if(success){ v.textContent="Reaction! → "+productNames(); v.style.color="var(--green)"; return; }
   v.style.color="var(--red)";
   const oFail=lastEval.orient===false, eFail=!lastEval.energy;
-  if(oFail && eFail) v.textContent="No reaction — wrong orientation and too little energy.";
-  else if(oFail) v.textContent= rx.failOrient || "No reaction — molecules hit the wrong way round.";
-  else v.textContent="No reaction — collision too gentle to break the bonds.";
+  if(oFail && eFail) v.textContent="No reaction.";
+  else if(oFail) v.textContent= rx.failOrient || "No reaction.";
+  else v.textContent="No reaction.";
 }
 
 function orientLabel(){
