@@ -211,9 +211,9 @@
       <div class="btns">
         <button class="fire" id="fireBtn">Collide</button>
         <button class="fire" id="skipBtn" style="display:none">Skip ▸▸</button>
-        <button class="ghost batch-btn" id="batch5Btn"><span class="cool-fill"></span><span class="label">Run ×5 (random aim)</span></button>
-        <button class="ghost batch-btn" id="batch10Btn"><span class="cool-fill"></span><span class="label">Run ×10 (random aim)</span></button>
-        <button class="ghost batch-btn" id="batchBtn"><span class="cool-fill"></span><span class="label">Run ×50 (random aim)</span></button>
+        <button class="ghost batch-btn" id="batch5Btn"><span class="cool-fill"></span><span class="label">Run ×5 (random angle)</span></button>
+        <button class="ghost batch-btn" id="batch10Btn"><span class="cool-fill"></span><span class="label">Run ×10 (random angle)</span></button>
+        <button class="ghost batch-btn" id="batchBtn"><span class="cool-fill"></span><span class="label">Run ×50 (random angle)</span></button>
         <button class="ghost" id="resetBtn">Reset</button>
         <button class="ghost" id="clearBtn">Clear tally</button>
       </div>
@@ -892,7 +892,7 @@ function setControlsDisabled(d){
   sel.disabled = d;
 }
 
-const BATCH_LABELS = { batch5Btn: "Run ×5 (random aim)", batch10Btn: "Run ×10 (random aim)", batchBtn: "Run ×50 (random aim)" };
+const BATCH_LABELS = { batch5Btn: "Run ×5 (random angle)", batch10Btn: "Run ×10 (random angle)", batchBtn: "Run ×50 (random angle)" };
 const BATCH_IDS = Object.keys(BATCH_LABELS);
 
 function startCooldown(ms, btnId){
