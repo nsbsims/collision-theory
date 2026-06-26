@@ -61,17 +61,18 @@
   .controls{ display:flex; flex-direction:column; gap:16px; margin-top:16px; }
   .row{ display:flex; align-items:center; gap:12px; }
   .row .cap{ flex:0 0 140px; }
-  input[type="range"]{
-    -webkit-appearance:none; appearance:none; flex:1 1 auto; height:6px; border-radius:6px;
-    background:var(--line); cursor:pointer; outline:none;
-  }
-  input[type="range"]::-webkit-slider-thumb{
-    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
-    background:var(--ink); border:3px solid var(--cyan); cursor:pointer; box-shadow:0 0 10px rgba(52,211,238,.5);
-  }
-  input[type="range"]::-moz-range-thumb{ width:18px; height:18px; border-radius:50%; background:var(--ink); border:3px solid var(--cyan); cursor:pointer; }
-  input:disabled{ opacity:.45; cursor:not-allowed; }
   .val{ font-family:var(--mono); font-size:.85rem; color:var(--ink); flex:0 0 56px; text-align:right; }
+
+  /* ---- angle slider: div-based (like the energy meter) so the track always fills its full width ---- */
+  .aslider{ position:relative; flex:1 1 auto; height:18px; cursor:grab; touch-action:none; }
+  .aslider:active{ cursor:grabbing; }
+  .aslider:focus-visible{ outline:2px solid var(--cyan); outline-offset:4px; border-radius:6px; }
+  .aslider-track{ position:absolute; left:0; right:0; top:50%; height:6px; transform:translateY(-50%); border-radius:6px; background:var(--line); }
+  .aslider-thumb{ position:absolute; top:50%; left:0; transform:translate(-50%,-50%);
+    width:18px; height:18px; border-radius:50%; background:var(--ink);
+    border:3px solid var(--cyan); box-shadow:0 0 10px rgba(52,211,238,.5);
+    z-index:2; pointer-events:none; }
+  .aslider.disabled{ opacity:.45; cursor:not-allowed; }
 
   /* ---- collision-energy control: the bar itself is the input (drag / click / arrow keys) ---- */
   .energy-control{ display:flex; flex-direction:column; gap:6px; }
@@ -93,7 +94,8 @@
     text-shadow:0 1px 2px rgba(7,10,19,.95), 0 0 3px rgba(7,10,19,.95); }
   .meter-mark.cat{ background:var(--green); box-shadow:0 0 0 1.5px rgba(7,10,19,.92), 0 0 8px 1px var(--green); }
   .meter-mark.cat::after{ content:"cat"; color:var(--green); }
-  .meter-cap{ position:absolute; left:0; right:0; top:47px; display:flex; justify-content:space-between; font-family:var(--mono); font-size:.66rem; color:var(--muted); }
+  .meter-cap{ position:absolute; left:0; right:0; top:47px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; white-space:nowrap; font-family:var(--mono); font-size:.66rem; color:var(--muted); }
+  .meter-cap .hint{ overflow:hidden; text-overflow:ellipsis; }
   .toggles{ display:flex; gap:18px; flex-wrap:wrap; }
   .toggle{ display:flex; align-items:center; gap:8px; font-size:.85rem; color:var(--muted); cursor:pointer; user-select:none; }
   .toggle input{ accent-color:var(--cyan); width:16px; height:16px; cursor:pointer; }
@@ -123,7 +125,7 @@
   .ws-title{ display:block; font-weight:700; font-size:1rem; letter-spacing:-.01em; }
   .ws-sub{ display:block; color:var(--muted); font-size:.85rem; margin-top:2px; line-height:1.4; }
   .ws-go{ flex:0 0 auto; font-family:var(--mono); font-size:.78rem; color:var(--cyan); white-space:nowrap; }
-  @media (max-width:560px){ .row .cap{ flex-basis:104px; font-size:.62rem; } h1{ font-size:1.4rem; } }
+  @media (max-width:560px){ .row .cap{ flex-basis:104px; font-size:.62rem; } h1{ font-size:1.4rem; } .meter-cap{ font-size:.6rem; } .meter-cap .hint{ display:none; } }
 </style>
 </head>
 <body>
@@ -156,12 +158,20 @@
     <div class="controls">
       <div class="row" id="rowA">
         <span class="cap" id="capA">Angle · A</span>
-        <input type="range" id="angleA" min="0" max="360" value="0">
+        <div class="aslider" id="angleA" role="slider" tabindex="0"
+             aria-label="Angle A" aria-valuemin="0" aria-valuemax="360" aria-valuenow="0">
+          <div class="aslider-track"></div>
+          <div class="aslider-thumb" id="thumbA"></div>
+        </div>
         <span class="val" id="valA">0°</span>
       </div>
       <div class="row" id="rowB" style="display:none">
         <span class="cap" id="capB">Angle · B</span>
-        <input type="range" id="angleB" min="0" max="360" value="0">
+        <div class="aslider" id="angleB" role="slider" tabindex="0"
+             aria-label="Angle B" aria-valuemin="0" aria-valuemax="360" aria-valuenow="0">
+          <div class="aslider-track"></div>
+          <div class="aslider-thumb" id="thumbB"></div>
+        </div>
         <span class="val" id="valB">0°</span>
       </div>
 
@@ -178,7 +188,7 @@
               <div class="meter-mark cat" id="eaMarkCat" style="display:none"></div>
               <div class="meter-thumb" id="keThumb"></div>
             </div>
-            <div class="meter-cap"><span>cold</span><span>drag the bar to set energy</span><span>hot</span></div>
+            <div class="meter-cap"><span>cold</span><span class="hint">drag the bar to set energy</span><span>hot</span></div>
           </div>
           <span class="val" id="keLabel">KE 0</span>
         </div>
@@ -642,8 +652,8 @@ function loadReaction(){
   // fresh start on every reaction switch: zero the collision energy, angles, and hide the reaction conditions
   energy = 0;
   rotA = 0; rotB = 0;
-  el("angleA").value = 0; el("valA").textContent = "0°";
-  el("angleB").value = 0; el("valB").textContent = "0°";
+  setAngle("A", 0);
+  setAngle("B", 0);
   el("tConditions").checked = false;
   el("tCatalyst").checked = false;
   stats = {att:0, rx:0};
@@ -654,7 +664,7 @@ function reset(){
   if(raf) cancelAnimationFrame(raf);
   state="IDLE"; success=false; bodies=[]; particles=[]; flash=0;
   lastEval={orient:null, energy:null};
-  el("fireBtn").disabled=false; el("batchBtn").disabled=false; el("angleA").disabled=false; el("angleB").disabled=false;
+  el("fireBtn").disabled=false; el("batchBtn").disabled=false; el("angleA").classList.remove("disabled"); el("angleB").classList.remove("disabled");
   const L = layout[rx.mode];
   T = {x:L.target.x, y:L.target.y};
   A = {x:L.A.x, y:L.A.y};
@@ -666,7 +676,7 @@ function reset(){
 function fire(){
   if(state!=="IDLE") return;
   state="MOVING";
-  el("fireBtn").disabled=true; el("batchBtn").disabled=true; el("angleA").disabled=true; el("angleB").disabled=true;
+  el("fireBtn").disabled=true; el("batchBtn").disabled=true; el("angleA").classList.add("disabled"); el("angleB").classList.add("disabled");
   updateVerdict();
 }
 
@@ -700,8 +710,49 @@ function clearStats(){
 // ---- wire up ----
 REACTIONS.forEach(r=>{ const o=document.createElement("option"); o.value=r.id; o.textContent=r.eq; sel.appendChild(o); });
 sel.addEventListener("change", loadReaction);
-el("angleA").addEventListener("input", e=>{ if(state!=="IDLE") return; rotA=parseInt(e.target.value); el("valA").textContent=rotA+"°"; });
-el("angleB").addEventListener("input", e=>{ if(state!=="IDLE") return; rotB=parseInt(e.target.value); el("valB").textContent=rotB+"°"; });
+// Div-based angle sliders (built like the energy meter so the track always fills its width).
+// Each maps a horizontal position to 0–360°, with the thumb edge sitting flush at the extrema.
+function refreshAngle(who){
+  const deg = who==="A" ? rotA : rotB;
+  const thumb = el("thumb"+who), val = el("val"+who), slider = el("angle"+who);
+  if(thumb) thumb.style.left = "calc(9px + "+(deg/360)+" * (100% - 18px))";
+  if(val) val.textContent = Math.round(deg)+"°";
+  if(slider) slider.setAttribute("aria-valuenow", Math.round(deg));
+}
+function setAngle(who, deg){
+  deg = Math.max(0, Math.min(360, Math.round(deg)));
+  if(who==="A") rotA = deg; else rotB = deg;
+  refreshAngle(who);
+}
+function angleFromPointer(who, e){
+  const r = el("angle"+who).getBoundingClientRect();
+  return Math.max(0, Math.min(360, Math.round((e.clientX - r.left) / r.width * 360)));
+}
+["A","B"].forEach(who=>{
+  const slider = el("angle"+who);
+  let dragging = false;
+  slider.addEventListener("pointerdown", e=>{
+    if(state!=="IDLE") return;
+    dragging = true;
+    try{ slider.setPointerCapture(e.pointerId); }catch(_){}
+    setAngle(who, angleFromPointer(who, e));
+    e.preventDefault();
+  });
+  slider.addEventListener("pointermove", e=>{ if(dragging && state==="IDLE") setAngle(who, angleFromPointer(who, e)); });
+  slider.addEventListener("pointerup",     ()=>{ dragging=false; });
+  slider.addEventListener("pointercancel", ()=>{ dragging=false; });
+  slider.addEventListener("keydown", e=>{
+    if(state!=="IDLE") return;
+    const cur = who==="A" ? rotA : rotB;
+    const big = e.shiftKey ? 15 : 1;
+    if(e.key==="ArrowLeft"||e.key==="ArrowDown")       setAngle(who, cur - big);
+    else if(e.key==="ArrowRight"||e.key==="ArrowUp")   setAngle(who, cur + big);
+    else if(e.key==="Home")                            setAngle(who, 0);
+    else if(e.key==="End")                             setAngle(who, 360);
+    else return;
+    e.preventDefault();
+  });
+});
 
 // Draggable energy bar: drag, click, or use arrow keys directly on the meter to set collision energy.
 const energyMeter = el("energyMeter");
