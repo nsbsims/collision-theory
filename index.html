@@ -105,8 +105,16 @@
   .fire{ background:var(--cyan); color:#04212b; box-shadow:0 0 18px -2px var(--cyan); }
   .fire:hover{ background:#5fe0f4; }
   .fire:disabled{ background:#2a3550; color:#5d6a8a; box-shadow:none; cursor:not-allowed; }
-  .ghost{ background:transparent; color:var(--ink); border:1px solid var(--line); }
+  .ghost{ background:transparent; color:var(--ink); border:1px solid var(--line); position:relative; overflow:hidden; }
   .ghost:hover{ background:var(--panel-2); }
+  .ghost:disabled{ color:#5d6a8a; cursor:not-allowed; }
+  /* cooldown sweep that drains left→right under the label */
+  .batch-btn .cool-fill{ position:absolute; inset:0; transform-origin:left center; transform:scaleX(0);
+    background:linear-gradient(90deg, rgba(52,211,238,.28), rgba(52,211,238,.10)); pointer-events:none; z-index:0; }
+  .batch-btn .cool-fill.run{ transform:scaleX(1); }
+  .batch-btn.cooling{ border-color:rgba(52,211,238,.4); }
+  .batch-btn .label{ position:relative; z-index:1; }
+  .batch-btn.firing{ box-shadow:0 0 22px -2px var(--cyan); border-color:var(--cyan); }
   .stats{ display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
   .stat{ flex:1 1 120px; background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:12px 14px; }
   .stat .n{ font-family:var(--mono); font-size:1.45rem; color:var(--cyan); line-height:1; }
@@ -202,7 +210,10 @@
 
       <div class="btns">
         <button class="fire" id="fireBtn">Collide</button>
-        <button class="ghost" id="batchBtn">Run ×50 (random aim)</button>
+        <button class="fire" id="skipBtn" style="display:none">Skip ▸▸</button>
+        <button class="ghost batch-btn" id="batch5Btn"><span class="cool-fill"></span><span class="label">Run ×5 (random aim)</span></button>
+        <button class="ghost batch-btn" id="batch10Btn"><span class="cool-fill"></span><span class="label">Run ×10 (random aim)</span></button>
+        <button class="ghost batch-btn" id="batchBtn"><span class="cool-fill"></span><span class="label">Run ×50 (random aim)</span></button>
         <button class="ghost" id="resetBtn">Reset</button>
         <button class="ghost" id="clearBtn">Clear tally</button>
       </div>
@@ -363,6 +374,7 @@ let rotA = 0, rotB = 0, energy = 0;
 let success = false;
 let raf = null;
 let bodies = [];
+let swarm = [];          // free-moving molecules shown during the Run ×50 batch animation
 let particles = [];
 let flash = 0;
 let lastEval = {orient:null, energy:null};
@@ -485,6 +497,14 @@ function drawStatusRings(tPts){
   });
 }
 
+function spawnSpark(x,y){
+  if(reduceMotion) return;
+  for(let i=0;i<7;i++){
+    const a=Math.random()*7, sp=1+Math.random()*2.6;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0.8,col:"#34d399",r:1+Math.random()*1.8});
+  }
+}
+
 function spawnBurst(x,y){
   if(reduceMotion){ flash=10; return; }
   const cols=["#34d3ee","#ffffff","#ffd24a","#34d399"];
@@ -506,11 +526,167 @@ function drawParticles(){
   }
 }
 
+// ---- batch swarm: molecules accumulate one pair at a time as the counter climbs ----
+// Approximate collision radius of a molecule: farthest atom centre + that atom's draw radius.
+function molRadius(m){
+  let maxR = 0;
+  for(const a of m.atoms){
+    const er = (EL[a.el]||EL.O).r;
+    const d = Math.hypot(a.x, a.y) + er;
+    if(d > maxR) maxR = d;
+  }
+  return maxR;
+}
+function batchSpeedFactor(){
+  // higher collision energy → faster swarm. ~0.65× at 0 energy, ~2.2× at full.
+  return 0.65 + (energy/100) * 1.55;
+}
+function batchSpecies(){
+  // reactant pool and product pool for this reaction
+  const reactants = [{m:rx.A, name:nameOf(rx.A)}];
+  if(rx.mode==="three") reactants.push({m:rx.B, name:nameOf(rx.B)});
+  reactants.push({m:rx.target, name:nameOf(rx.target)});
+  const products = (rx.products||[]).map(p=>({m:p.m, name:nameOf(p.m)}));
+  return {reactants, products};
+}
+
+let _spc = null;
+let _shotId = 0;
+function resetSwarm(){
+  swarm = [];
+  _spc = batchSpecies();
+  _shotId = 0;
+}
+
+// Place one molecule into the swarm at a random spot, orientation and velocity.
+function addMolecule(m, opts){
+  opts = opts || {};
+  const margin = 50;
+  const r = molRadius(m);
+  const ang = Math.random()*Math.PI*2;
+  const base = (0.8 + Math.random()*2.4) * batchSpeedFactor();
+  swarm.push({
+    m,
+    x: opts.x !== undefined ? opts.x : margin + Math.random()*(W - margin*2),
+    y: opts.y !== undefined ? opts.y : margin + Math.random()*(H - margin*2),
+    vx: Math.cos(ang)*base,
+    vy: Math.sin(ang)*base,
+    rot: Math.random()*360,
+    vrot: (Math.random()*2-1)*4,
+    r,
+    mass: r*r,                      // mass ∝ area, so big molecules shove little ones
+    born: opts.born !== undefined ? opts.born : 1   // fade-in counter (frames)
+  });
+  return swarm[swarm.length-1];
+}
+
+// During the counting phase each shot spawns the FULL reactant set (e.g. one NO + one O₃).
+// Hit shots are tagged so their reactants convert into the full product set once the phase ends.
+function spawnShot(hit){
+  if(!_spc) _spc = batchSpecies();
+  _shotId++;
+  for(const sp of _spc.reactants){
+    const b = addMolecule(sp.m);
+    b.hit = hit;
+    b.shotId = _shotId;
+  }
+}
+
+// After the collision phase: each reacted shot's reactants become the product set, in place.
+function formProducts(){
+  if(!_spc || !_spc.products.length) return;
+  // group the hit reactant bodies by shot
+  const groups = {};
+  for(const b of swarm){
+    if(b.hit && b.shotId){ (groups[b.shotId] = groups[b.shotId] || []).push(b); }
+  }
+  const keep = [];
+  for(const b of swarm){ if(!(b.hit && b.shotId)) keep.push(b); }   // misses stay as-is
+  Object.values(groups).forEach(reactBodies=>{
+    // average position of this shot's reactants → spawn products near there
+    let cx=0, cy=0; reactBodies.forEach(b=>{ cx+=b.x; cy+=b.y; });
+    cx/=reactBodies.length; cy/=reactBodies.length;
+    _spc.products.forEach(p=>{
+      const r = molRadius(p.m);
+      const ang = Math.random()*Math.PI*2;
+      const base = (0.8 + Math.random()*2.4) * batchSpeedFactor();
+      keep.push({
+        m:p.m,
+        x: cx + (Math.random()*40-20),
+        y: cy + (Math.random()*40-20),
+        vx: Math.cos(ang)*base, vy: Math.sin(ang)*base,
+        rot: Math.random()*360, vrot:(Math.random()*2-1)*4,
+        r, mass:r*r, born:4
+      });
+    });
+    if(!reduceMotion) spawnSpark(cx, cy);
+  });
+  swarm = keep;
+  flash = Math.max(flash, 8);
+}
+
+function updateSwarm(collide){
+  const margin = 34;
+  for(const b of swarm){
+    b.x += b.vx; b.y += b.vy; b.rot += b.vrot;
+    if(b.born < 8) b.born++;        // ease the pop-in
+    // bounce off the walls, keeping them inside the chamber
+    if(b.x < margin){ b.x = margin; b.vx = Math.abs(b.vx); }
+    else if(b.x > W-margin){ b.x = W-margin; b.vx = -Math.abs(b.vx); }
+    if(b.y < margin){ b.y = margin; b.vy = Math.abs(b.vy); }
+    else if(b.y > H-margin){ b.y = H-margin; b.vy = -Math.abs(b.vy); }
+  }
+  if(!collide) return;               // after the reaction phase the molecules pass through each other
+  // perfectly elastic molecule–molecule collisions (resolved along the line of centres)
+  for(let i=0;i<swarm.length;i++){
+    const a = swarm[i];
+    for(let j=i+1;j<swarm.length;j++){
+      const b = swarm[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d2 = dx*dx + dy*dy;
+      const rsum = (a.r + b.r) * 0.85;            // slightly tighter than visual radius feels right
+      if(d2 > rsum*rsum || d2 === 0) continue;
+      let d = Math.sqrt(d2) || 0.0001;
+      const nx = dx/d, ny = dy/d;                 // collision normal
+      // separate the overlap so they don't stick together
+      const overlap = rsum - d;
+      const ma = a.mass, mb = b.mass, mt = ma + mb;
+      a.x -= nx * overlap * (mb/mt);
+      a.y -= ny * overlap * (mb/mt);
+      b.x += nx * overlap * (ma/mt);
+      b.y += ny * overlap * (ma/mt);
+      // relative velocity along the normal
+      const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+      const vn = rvx*nx + rvy*ny;
+      if(vn > 0) continue;                         // already separating
+      // elastic impulse (restitution = 1)
+      const imp = (2 * vn) / mt;
+      a.vx += imp * mb * nx;  a.vy += imp * mb * ny;
+      b.vx -= imp * ma * nx;  b.vy -= imp * ma * ny;
+      // a little angular kick on impact
+      a.vrot += (Math.random()-0.5)*1.5;
+      b.vrot += (Math.random()-0.5)*1.5;
+    }
+  }
+}
+
 function render(){
   bg();
   const vib = el("tVib").checked && (state==="IDLE"||state==="MOVING");
   if(state==="RESULT"){
     bodies.forEach(b=> drawMolecule(b.x,b.y,b.m,b.rot,{}));
+    drawParticles();
+    return;
+  }
+  if(state==="BATCH" || state==="SWARM"){
+    const vibrate = (state==="BATCH");               // jitter while counting; stay steady once settled
+    swarm.forEach(b=>{
+      const a = Math.min(1, (b.born||8)/8);
+      ctx.save();
+      if(a < 1) ctx.globalAlpha = a;
+      drawMolecule(b.x, b.y, b.m, b.rot, {vib:vibrate});
+      ctx.restore();
+    });
     drawParticles();
     return;
   }
@@ -534,6 +710,8 @@ function step(){
     if(A.x >= triggerX){ A.x = triggerX; evaluate(); }
   } else if(state==="RESULT"){
     bodies.forEach(b=>{ b.x+=b.vx; b.y+=b.vy; b.rot+=b.vrot; b.vx*=0.992; b.vy*=0.992; });
+  } else if(state==="SWARM"){
+    if(!reduceMotion) updateSwarm(false);  // collisions off: molecules drift through one another
   }
   render();
   raf = requestAnimationFrame(step);
@@ -662,9 +840,21 @@ function loadReaction(){
 
 function reset(){
   if(raf) cancelAnimationFrame(raf);
-  state="IDLE"; success=false; bodies=[]; particles=[]; flash=0;
+  clearBatchTimers();
+  batchActive = false;
+  _skipBatch = false;
+  el("skipBtn").style.display = "none";          // restore Collide if a batch was interrupted
+  el("fireBtn").style.display = "";
+  // restore all batch buttons to their resting state in case a cooldown was mid-flight
+  BATCH_IDS.forEach(id=>{
+    const btn=el(id); btn.classList.remove("cooling","firing");
+    const fill=btn.querySelector(".cool-fill"); if(fill){ fill.style.transition="none"; fill.classList.remove("run"); }
+    const label=btn.querySelector(".label"); if(label) label.textContent=BATCH_LABELS[id];
+  });
+  state="IDLE"; success=false; bodies=[]; swarm=[]; particles=[]; flash=0;
   lastEval={orient:null, energy:null};
-  el("fireBtn").disabled=false; el("batchBtn").disabled=false; el("angleA").classList.remove("disabled"); el("angleB").classList.remove("disabled");
+  setControlsDisabled(false);
+  if(sel) sel.disabled=false;
   const L = layout[rx.mode];
   T = {x:L.target.x, y:L.target.y};
   A = {x:L.A.x, y:L.A.y};
@@ -674,32 +864,163 @@ function reset(){
 }
 
 function fire(){
+  if(state==="SWARM") reset();        // clear the floating molecules and re-rack
   if(state!=="IDLE") return;
   state="MOVING";
-  el("fireBtn").disabled=true; el("batchBtn").disabled=true; el("angleA").classList.add("disabled"); el("angleB").classList.add("disabled");
+  el("fireBtn").disabled=true; BATCH_IDS.forEach(id=> el(id).disabled=true); el("angleA").classList.add("disabled"); el("angleB").classList.add("disabled");
   updateVerdict();
 }
 
 // Statistical sampler: rapid-fire n collisions with random orientation at the current
 // energy, the way a real flask of molecules tumbles at every angle at once. Counts how
 // many are EFFECTIVE (correct orientation AND energy >= Eₐ) and adds them to the tally.
-function runBatch(n){
-  if(state==="MOVING") return;
+// Now animated: the molecules visibly tumble through random aims while a counter ticks up,
+// hits spark green on the target, then the button enters a short cooldown.
+let batchTimers = [];
+let batchActive = false;
+let _skipBatch = false;
+function clearBatchTimers(){ batchTimers.forEach(clearTimeout); batchTimers = []; if(batchRAF) cancelAnimationFrame(batchRAF); batchRAF=0; if(coolRAF) cancelAnimationFrame(coolRAF); coolRAF=0; }
+let batchRAF = 0;
+let coolRAF = 0;
+
+function setControlsDisabled(d){
+  el("fireBtn").disabled=d;
+  BATCH_IDS.forEach(id=> el(id).disabled=d);
+  el("resetBtn").disabled=d; el("clearBtn").disabled=d;
+  el("angleA").classList.toggle("disabled", d);
+  el("angleB").classList.toggle("disabled", d);
+  sel.disabled = d;
+}
+
+const BATCH_LABELS = { batch5Btn: "Run ×5 (random aim)", batch10Btn: "Run ×10 (random aim)", batchBtn: "Run ×50 (random aim)" };
+const BATCH_IDS = Object.keys(BATCH_LABELS);
+
+function startCooldown(ms, btnId){
+  btnId = btnId || "batchBtn";
+  const btn = el(btnId), fill = btn.querySelector(".cool-fill"), label = btn.querySelector(".label");
+  const baseText = BATCH_LABELS[btnId];
+  btn.disabled = true; btn.classList.add("cooling");
+  // animate the drain: start full, shrink to empty over ms
+  fill.style.transition = "none"; fill.classList.add("run");        // scaleX(1)
+  // force reflow so the next change animates
+  void fill.offsetWidth;
+  fill.style.transition = "transform "+ms+"ms linear";
+  fill.classList.remove("run");                                     // → scaleX(0)
+  const t0 = performance.now();
+  (function tick(){
+    const left = Math.max(0, ms - (performance.now()-t0));
+    label.textContent = "Cooldown "+(left/1000).toFixed(1)+"s";
+    if(left>0){ coolRAF = requestAnimationFrame(tick); }
+  })();
+  batchTimers.push(setTimeout(()=>{
+    if(coolRAF) cancelAnimationFrame(coolRAF); coolRAF=0;
+    btn.classList.remove("cooling");
+    fill.style.transition="none"; fill.classList.remove("run"); void fill.offsetWidth;
+    label.textContent = baseText;
+    if(state==="IDLE") setControlsDisabled(false); else BATCH_IDS.forEach(id=> el(id).disabled=false);
+  }, ms));
+}
+
+function runBatch(n, btnId){
+  if(state==="MOVING" || batchActive) return;
+  btnId = btnId || "batchBtn";
   if(state!=="IDLE") reset();                 // re-rack molecules so positions are fair
+
   const savedA=rotA, savedB=rotB;
+
+  // Pre-roll all n shots so the tally is statistically honest; remember which were hits.
+  const shots = [];
   let hits=0;
   for(let i=0;i<n;i++){
-    rotA=Math.random()*360; rotB=Math.random()*360;
+    const a=Math.random()*360, bdeg=Math.random()*360;
+    rotA=a; rotB=bdeg;
     const orientOK = rx.orient ? rx.orient.every(checkConstraint) : true;
-    if(orientOK && energy>=effEa()) hits++;
+    const hit = orientOK && energy>=effEa();
+    if(hit) hits++;
+    shots.push({a, b:bdeg, hit});
   }
   rotA=savedA; rotB=savedB;                    // restore the aim the user had set
-  stats.att+=n; stats.rx+=hits;
-  refreshStats();
+
+  if(reduceMotion){
+    // honour reduced-motion: skip the tumble, place the molecules statically, show the result.
+    stats.att+=n; stats.rx+=hits; refreshStats();
+    el("pillOrient").style.display="none"; el("pillEnergy").style.display="none";
+    resetSwarm();
+    shots.forEach(s=> spawnShot(s.hit));
+    formProducts();                     // reacted ones become products immediately
+    swarm.forEach(b=> b.born = 8);      // no fade-in
+    if(raf){ cancelAnimationFrame(raf); raf = 0; }
+    state = "SWARM";
+    const v=el("verdict");
+    v.textContent = n+" random shots → "+hits+" reacted ("+Math.round(hits/n*100)+"% effective)";
+    v.style.color = hits>0 ? "var(--green)" : "var(--red)";
+    raf = requestAnimationFrame(step);
+    startCooldown(2500, btnId);
+    return;
+  }
+
+  // ---- animated tumble ----
+  batchActive = true;
+  _skipBatch = false;
+  state = "BATCH";
+  if(raf){ cancelAnimationFrame(raf); raf = 0; }   // pause the idle loop; batch drives its own frames
+  resetSwarm();                                     // start empty; molecules appear as the count climbs
+  setControlsDisabled(true);
+  el("fireBtn").style.display = "none";             // swap Collide for Skip while the batch runs
+  el("skipBtn").style.display = "";
+  el(btnId).classList.add("firing");
   el("pillOrient").style.display="none"; el("pillEnergy").style.display="none";
-  const v=el("verdict");
-  v.textContent = n+" random shots → "+hits+" reacted ("+Math.round(hits/n*100)+"% effective)";
-  v.style.color = hits>0 ? "var(--green)" : "var(--red)";
+  const v=el("verdict"); v.style.color="var(--cyan)";
+
+  const total = n;
+  // steady fill: ~200ms per shot on top of a 1.2s baseline → ×5 ≈ 2.2s, ×10 ≈ 3.2s, ×50 ≈ 11.2s
+  const dur = Math.round(1200 + n*200);
+  const t0 = performance.now();
+  let shown = 0, runningHits = 0;
+
+  function finishBatch(){
+    // spawn any shots not yet shown (covers the skip case)
+    while(shown < total){
+      const s = shots[shown];
+      rotA = s.a; rotB = s.b;
+      spawnShot(s.hit);
+      if(s.hit) runningHits++;
+      shown++;
+    }
+    rotA=savedA; rotB=savedB;
+    stats.att += n; stats.rx += hits; refreshStats();
+    batchActive = false;
+    formProducts();                               // reacted molecules now turn into products
+    state = "SWARM";                              // leave products + leftover reactants floating
+    el(btnId).classList.remove("firing");
+    el("skipBtn").style.display = "none";          // restore Collide
+    el("fireBtn").style.display = "";
+    v.textContent = n+" random shots → "+hits+" reacted ("+Math.round(hits/n*100)+"% effective)";
+    v.style.color = hits>0 ? "var(--green)" : "var(--red)";
+    refreshAngle("A"); refreshAngle("B");
+    setControlsDisabled(false);
+    raf = requestAnimationFrame(step);     // resume the loop (now animating the SWARM)
+    startCooldown(2500, btnId);
+  }
+
+  (function frame(){
+    if(_skipBatch){ finishBatch(); return; }
+    const t = Math.min(1, (performance.now()-t0)/dur);
+    // linear so each counted shot adds one molecule at a steady, readable pace
+    const target = Math.floor(t * total);
+    updateSwarm(true);                              // drift, bounce off walls, collide elastically
+    while(shown < target){
+      const s = shots[shown];
+      rotA = s.a; rotB = s.b;
+      const b = spawnShot(s.hit);                   // everything enters as a reactant for now
+      if(s.hit){ runningHits++; }                   // tracked; product forms after the phase
+      shown++;
+    }
+    v.textContent = shown+" / "+total+" shots…  "+runningHits+" reacted";
+    render();
+    if(t < 1){ batchRAF = requestAnimationFrame(frame); }
+    else { finishBatch(); }
+  })();
 }
 
 function clearStats(){
@@ -732,6 +1053,7 @@ function angleFromPointer(who, e){
   const slider = el("angle"+who);
   let dragging = false;
   slider.addEventListener("pointerdown", e=>{
+    if(state==="SWARM") reset();
     if(state!=="IDLE") return;
     dragging = true;
     try{ slider.setPointerCapture(e.pointerId); }catch(_){}
@@ -742,6 +1064,7 @@ function angleFromPointer(who, e){
   slider.addEventListener("pointerup",     ()=>{ dragging=false; });
   slider.addEventListener("pointercancel", ()=>{ dragging=false; });
   slider.addEventListener("keydown", e=>{
+    if(state==="SWARM") reset();
     if(state!=="IDLE") return;
     const cur = who==="A" ? rotA : rotB;
     const big = e.shiftKey ? 15 : 1;
@@ -782,7 +1105,10 @@ energyMeter.addEventListener("keydown", e=>{
 });
 
 el("fireBtn").addEventListener("click", fire);
-el("batchBtn").addEventListener("click", ()=>runBatch(50));
+el("skipBtn").addEventListener("click", ()=>{ if(batchActive) _skipBatch = true; });
+el("batch5Btn").addEventListener("click", ()=>runBatch(5, "batch5Btn"));
+el("batch10Btn").addEventListener("click", ()=>runBatch(10, "batch10Btn"));
+el("batchBtn").addEventListener("click", ()=>runBatch(50, "batchBtn"));
 el("resetBtn").addEventListener("click", reset);
 el("clearBtn").addEventListener("click", clearStats);
 el("tConditions").addEventListener("change", updateConditionsUI);
