@@ -72,18 +72,28 @@
   input[type="range"]::-moz-range-thumb{ width:18px; height:18px; border-radius:50%; background:var(--ink); border:3px solid var(--cyan); cursor:pointer; }
   input:disabled{ opacity:.45; cursor:not-allowed; }
   .val{ font-family:var(--mono); font-size:.85rem; color:var(--ink); flex:0 0 56px; text-align:right; }
-  .meter-wrap{ flex:1 1 auto; padding-top:19px; }                 /* headroom so the Eₐ / cat labels aren't clipped */
-  .meter{ position:relative; height:14px; }
+
+  /* ---- collision-energy control: the bar itself is the input (drag / click / arrow keys) ---- */
+  .energy-control{ display:flex; flex-direction:column; gap:6px; }
+  .energy-row{ align-items:center; }
+  .meter-wrap{ position:relative; flex:1 1 auto; padding-top:19px; padding-bottom:20px; }   /* headroom for Eₐ/cat labels above and cold/hot caption below */
+  .meter{ position:relative; height:22px; border-radius:8px; cursor:grab; touch-action:none; }
+  .meter:active{ cursor:grabbing; }
+  .meter:focus-visible{ outline:2px solid var(--cyan); outline-offset:4px; }
   .meter-track{ position:absolute; inset:0; border-radius:8px; background:linear-gradient(90deg,#3b82f6,#f59e0b); border:1px solid var(--line); overflow:hidden; }
   .meter-fill{ position:absolute; top:0; bottom:0; right:0; width:100%; background:var(--panel-2); transition:width .08s linear; }
+  .meter-thumb{ position:absolute; top:50%; left:0; transform:translate(-50%,-50%);
+    width:13px; height:28px; border-radius:5px; background:var(--ink);
+    border:3px solid var(--cyan); box-shadow:0 0 11px rgba(52,211,238,.55);
+    z-index:4; pointer-events:none; }
   .meter-mark{ position:absolute; top:-4px; bottom:-4px; width:3px; margin-left:-1.5px; left:30%; border-radius:2px; background:var(--amber);
-    box-shadow:0 0 0 1.5px rgba(7,10,19,.92), 0 0 8px 1px var(--amber); z-index:2; }
+    box-shadow:0 0 0 1.5px rgba(7,10,19,.92), 0 0 8px 1px var(--amber); z-index:2; pointer-events:none; }
   .meter-mark::after{ content:"Eₐ"; position:absolute; top:-16px; left:50%; transform:translateX(-50%); white-space:nowrap;
     font-family:var(--mono); font-size:.64rem; font-weight:700; color:var(--amber);
     text-shadow:0 1px 2px rgba(7,10,19,.95), 0 0 3px rgba(7,10,19,.95); }
   .meter-mark.cat{ background:var(--green); box-shadow:0 0 0 1.5px rgba(7,10,19,.92), 0 0 8px 1px var(--green); }
   .meter-mark.cat::after{ content:"cat"; color:var(--green); }
-  .meter-cap{ display:flex; justify-content:space-between; font-family:var(--mono); font-size:.66rem; color:var(--muted); margin-top:5px; }
+  .meter-cap{ position:absolute; left:0; right:0; top:47px; display:flex; justify-content:space-between; font-family:var(--mono); font-size:.66rem; color:var(--muted); }
   .toggles{ display:flex; gap:18px; flex-wrap:wrap; }
   .toggle{ display:flex; align-items:center; gap:8px; font-size:.85rem; color:var(--muted); cursor:pointer; user-select:none; }
   .toggle input{ accent-color:var(--cyan); width:16px; height:16px; cursor:pointer; }
@@ -154,19 +164,24 @@
         <input type="range" id="angleB" min="0" max="360" value="0">
         <span class="val" id="valB">0°</span>
       </div>
-      <div class="row">
-        <span class="cap">Collision energy</span>
-        <div class="meter-wrap">
-          <div class="meter">
-            <div class="meter-track">
-              <div class="meter-fill" id="keFill"></div>
+
+      <div class="energy-control">
+        <div class="row energy-row">
+          <span class="cap">Collision energy</span>
+          <div class="meter-wrap">
+            <div class="meter" id="energyMeter" role="slider" tabindex="0"
+                 aria-label="Collision energy" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="meter-track">
+                <div class="meter-fill" id="keFill"></div>
+              </div>
+              <div class="meter-mark" id="eaMark"></div>
+              <div class="meter-mark cat" id="eaMarkCat" style="display:none"></div>
+              <div class="meter-thumb" id="keThumb"></div>
             </div>
-            <div class="meter-mark" id="eaMark"></div>
-            <div class="meter-mark cat" id="eaMarkCat" style="display:none"></div>
+            <div class="meter-cap"><span>cold</span><span>drag the bar to set energy</span><span>hot</span></div>
           </div>
-          <div class="meter-cap"><span id="keLabel">KE 0</span><span>cold ··· hot</span></div>
+          <span class="val" id="keLabel">KE 0</span>
         </div>
-        <input type="range" id="energy" min="0" max="100" value="0" style="flex:0 0 150px">
       </div>
 
       <div class="toggles">
@@ -604,9 +619,11 @@ function updateConditionsUI(){
 
 function refreshMeter(){
   el("keFill").style.width = (100-energy)+"%";
-  el("eaMark").style.left = rx.Ea+"%";
-  el("eaMarkCat").style.left = effEa()+"%";
+  el("eaMark").style.left = "calc(6.5px + "+(rx.Ea/100)+" * (100% - 13px))";
+  el("eaMarkCat").style.left = "calc(6.5px + "+(effEa()/100)+" * (100% - 13px))";
   el("keLabel").textContent = "KE "+energy;
+  el("keThumb").style.left = "calc(3px + "+(energy/100)+" * (100% - 6px))";
+  el("energyMeter").setAttribute("aria-valuenow", energy);
   updateConditionsUI();
 }
 function refreshStats(){
@@ -624,7 +641,6 @@ function loadReaction(){
   if(rx.mode==="three") el("capB").textContent = "Angle · " + nameOf(rx.B);
   // fresh start on every reaction switch: zero the collision energy, angles, and hide the reaction conditions
   energy = 0;
-  el("energy").value = 0;
   rotA = 0; rotB = 0;
   el("angleA").value = 0; el("valA").textContent = "0°";
   el("angleB").value = 0; el("valB").textContent = "0°";
@@ -686,7 +702,34 @@ REACTIONS.forEach(r=>{ const o=document.createElement("option"); o.value=r.id; o
 sel.addEventListener("change", loadReaction);
 el("angleA").addEventListener("input", e=>{ if(state!=="IDLE") return; rotA=parseInt(e.target.value); el("valA").textContent=rotA+"°"; });
 el("angleB").addEventListener("input", e=>{ if(state!=="IDLE") return; rotB=parseInt(e.target.value); el("valB").textContent=rotB+"°"; });
-el("energy").addEventListener("input", e=>{ energy=parseInt(e.target.value); refreshMeter(); });
+
+// Draggable energy bar: drag, click, or use arrow keys directly on the meter to set collision energy.
+const energyMeter = el("energyMeter");
+let energyDragging = false;
+function energyFromPointer(e){
+  const r = energyMeter.getBoundingClientRect();
+  return Math.max(0, Math.min(100, Math.round((e.clientX - r.left) / r.width * 100)));
+}
+function setEnergy(v){ energy = Math.max(0, Math.min(100, Math.round(v))); refreshMeter(); }
+energyMeter.addEventListener("pointerdown", e=>{
+  energyDragging = true;
+  try{ energyMeter.setPointerCapture(e.pointerId); }catch(_){}
+  setEnergy(energyFromPointer(e));
+  e.preventDefault();
+});
+energyMeter.addEventListener("pointermove", e=>{ if(energyDragging) setEnergy(energyFromPointer(e)); });
+energyMeter.addEventListener("pointerup",     ()=>{ energyDragging=false; });
+energyMeter.addEventListener("pointercancel", ()=>{ energyDragging=false; });
+energyMeter.addEventListener("keydown", e=>{
+  const big = e.shiftKey ? 10 : 1;
+  if(e.key==="ArrowLeft"||e.key==="ArrowDown")      setEnergy(energy - big);
+  else if(e.key==="ArrowRight"||e.key==="ArrowUp")  setEnergy(energy + big);
+  else if(e.key==="Home")                           setEnergy(0);
+  else if(e.key==="End")                            setEnergy(100);
+  else return;
+  e.preventDefault();
+});
+
 el("fireBtn").addEventListener("click", fire);
 el("batchBtn").addEventListener("click", ()=>runBatch(50));
 el("resetBtn").addEventListener("click", reset);
